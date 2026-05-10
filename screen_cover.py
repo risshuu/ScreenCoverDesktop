@@ -35,6 +35,10 @@ except ImportError:
 WDA_EXCLUDEFROMCAPTURE = 0x00000011
 EDGE = 8
 
+GWL_EXSTYLE = -20
+WS_EX_LAYERED = 0x00080000
+WS_EX_TRANSPARENT = 0x00000020
+
 
 def exclude_from_capture(widget):
     """Tell DWM to skip this window during screen capture (Win10 2004+).
@@ -45,6 +49,28 @@ def exclude_from_capture(widget):
         ctypes.windll.user32.SetWindowDisplayAffinity(
             int(widget.winId()), WDA_EXCLUDEFROMCAPTURE
         )
+    except Exception:
+        pass
+
+
+def set_click_through(widget, on):
+    """Toggle WS_EX_TRANSPARENT so clicks fall through to whatever app is
+    underneath. Qt's WA_TransparentForMouseEvents only handles intra-app
+    routing — it does not make a top-level window pass clicks to other apps."""
+    if sys.platform != "win32":
+        return
+    try:
+        hwnd = int(widget.winId())
+        user32 = ctypes.windll.user32
+        # GetWindowLongPtrW handles 64-bit; fall back to GetWindowLongW.
+        getter = getattr(user32, "GetWindowLongPtrW", user32.GetWindowLongW)
+        setter = getattr(user32, "SetWindowLongPtrW", user32.SetWindowLongW)
+        style = getter(hwnd, GWL_EXSTYLE)
+        if on:
+            style |= WS_EX_LAYERED | WS_EX_TRANSPARENT
+        else:
+            style &= ~WS_EX_TRANSPARENT
+        setter(hwnd, GWL_EXSTYLE, style)
     except Exception:
         pass
 
@@ -110,6 +136,7 @@ class Cover(QWidget):
     def set_locked(self, locked):
         self._locked = locked
         self.setAttribute(Qt.WA_TransparentForMouseEvents, locked)
+        set_click_through(self, locked)
         self.update()
 
     def set_full_width(self, on):
