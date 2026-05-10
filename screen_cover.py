@@ -131,7 +131,14 @@ class Cover(QWidget):
             p.drawRect(self.rect().adjusted(0, 0, -1, -1))
 
     def _paint_bar(self, p):
-        p.fillRect(self.rect(), QColor(0, 0, 0, int(255 * self.opacity_pct / 100)))
+        a = int(255 * self.opacity_pct / 100)
+        c = QColor(0, 0, 0, a)
+        # Double fill: compounds alpha so slider 99 -> effectively opaque,
+        # slider 50 -> ~75% darkness. Matches what "X% opacity" feels like
+        # rather than linear alpha math.
+        p.fillRect(self.rect(), c)
+        if a < 255:
+            p.fillRect(self.rect(), c)
 
     def _paint_mosaic(self, p):
         if not self._snapshot or self._snapshot.isNull():
