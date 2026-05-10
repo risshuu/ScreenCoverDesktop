@@ -19,7 +19,7 @@ add/remove/quit.
 import sys
 import ctypes
 
-from PySide6.QtCore import Qt, QTimer, QRect, QObject
+from PySide6.QtCore import Qt, QTimer, QRect, QObject, Signal
 from PySide6.QtGui import (QPainter, QColor, QIcon, QPixmap, QAction,
                            QGuiApplication, QFont)
 from PySide6.QtWidgets import (QApplication, QWidget, QSystemTrayIcon, QMenu,
@@ -303,6 +303,8 @@ def make_tray_icon():
 
 
 class Controller(QObject):
+    hotkey_fired = Signal(str)
+
     def __init__(self, app):
         super().__init__()
         self.app = app
@@ -313,6 +315,7 @@ class Controller(QObject):
         self.tray.setContextMenu(self._tray_menu())
         self.tray.show()
         self._kb_listener = None
+        self.hotkey_fired.connect(self._on_hotkey)
         if HAS_HOTKEYS:
             self._setup_hotkeys()
 
@@ -331,14 +334,26 @@ class Controller(QObject):
         return m
 
     def _setup_hotkeys(self):
-        def trig(fn):
-            return lambda: QTimer.singleShot(0, fn)
+        # pynput's listener runs on its own thread; firing a Qt signal from
+        # there auto-queues the slot to the main GUI thread. (QTimer.singleShot
+        # would schedule on the listener thread, which has no event loop, so
+        # the action would never run.)
+        def emit(name):
+            return lambda: self.hotkey_fired.emit(name)
         self._kb_listener = _kb.GlobalHotKeys({
-            '<ctrl>+<alt>+h': trig(self.toggle_visibility),
-            '<ctrl>+<alt>+l': trig(self.toggle_lock),
-            '<ctrl>+<alt>+m': trig(self.add_mosaic),
+            '<ctrl>+<alt>+h': emit('visibility'),
+            '<ctrl>+<alt>+l': emit('lock'),
+            '<ctrl>+<alt>+m': emit('mosaic'),
         })
         self._kb_listener.start()
+
+    def _on_hotkey(self, name):
+        if name == 'visibility':
+            self.toggle_visibility()
+        elif name == 'lock':
+            self.toggle_lock()
+        elif name == 'mosaic':
+            self.add_mosaic()
 
     def _primary(self):
         return QGuiApplication.primaryScreen().availableGeometry()
