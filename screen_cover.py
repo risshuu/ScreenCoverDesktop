@@ -141,8 +141,9 @@ class Cover(QWidget):
         sw = max(1, self.width() // block)
         sh = max(1, self.height() // block)
         small = self._snapshot.scaled(sw, sh, Qt.IgnoreAspectRatio, Qt.FastTransformation)
-        big = small.scaled(self.size(), Qt.IgnoreAspectRatio, Qt.FastTransformation)
-        p.drawPixmap(0, 0, big)
+        # Use rect-target overload so Qt scales to the widget's logical size,
+        # which keeps mosaic correct on HiDPI displays.
+        p.drawPixmap(self.rect(), small)
         darken = int(255 * (self.intensity / 100) * 0.3)
         if darken:
             p.fillRect(self.rect(), QColor(0, 0, 0, darken))
