@@ -50,12 +50,14 @@ def exclude_from_capture(widget):
 
 
 class Cover(QWidget):
-    def __init__(self, controller, mode="bar", opacity_pct=100, intensity=50):
+    def __init__(self, controller, mode="bar", opacity_pct=100, intensity=50,
+                 full_width=True):
         super().__init__()
         self.controller = controller
         self.mode = mode
         self.opacity_pct = opacity_pct
         self.intensity = intensity
+        self.full_width = full_width
         self.setWindowFlags(
             Qt.FramelessWindowHint
             | Qt.WindowStaysOnTopHint
@@ -110,6 +112,20 @@ class Cover(QWidget):
         self.setAttribute(Qt.WA_TransparentForMouseEvents, locked)
         self.update()
 
+    def set_full_width(self, on):
+        self.full_width = on
+        if on:
+            self._snap_full_width()
+        self.update()
+
+    def _snap_full_width(self):
+        scr = self.screen() or QGuiApplication.primaryScreen()
+        if not scr:
+            return
+        sg = scr.availableGeometry()
+        g = self.geometry()
+        self.setGeometry(sg.x(), g.y(), sg.width(), g.height())
+
     def _capture(self):
         scr = self.screen() or QGuiApplication.primaryScreen()
         if not scr:
@@ -157,10 +173,12 @@ class Cover(QWidget):
 
     def _hit_edge(self, p):
         r = self.rect()
-        l = p.x() < EDGE
-        rr = p.x() > r.width() - EDGE
         t = p.y() < EDGE
         b = p.y() > r.height() - EDGE
+        if self.full_width:
+            return 't' if t else ('b' if b else None)
+        l = p.x() < EDGE
+        rr = p.x() > r.width() - EDGE
         if t and l: return 'tl'
         if t and rr: return 'tr'
         if b and l: return 'bl'
@@ -200,7 +218,10 @@ class Cover(QWidget):
             return
         gp = ev.globalPosition().toPoint()
         if self._drag_offset is not None:
-            self.move(gp - self._drag_offset)
+            new_pos = gp - self._drag_offset
+            if self.full_width:
+                new_pos.setX(self.x())
+            self.move(new_pos)
         elif self._resize_edge:
             d = gp - self._resize_origin
             g = QRect(self._resize_geom)
@@ -298,8 +319,8 @@ class Controller(QObject):
     def add_mosaic(self):
         g = self._primary()
         c = Cover(self, mode="mosaic")
-        w, h = 480, 200
-        c.setGeometry(g.center().x() - w // 2, g.center().y() - h // 2, w, h)
+        h = 220
+        c.setGeometry(g.x(), g.bottom() - h, g.width(), h)
         self._add(c)
 
     def _add(self, c):
@@ -339,6 +360,11 @@ class Controller(QObject):
         a_mode.setChecked(cover.mode == "mosaic")
         a_mode.triggered.connect(lambda checked: cover.set_mode("mosaic" if checked else "bar"))
         actions.append(a_mode)
+        a_full = QAction("Full width (vertical-only)", self)
+        a_full.setCheckable(True)
+        a_full.setChecked(cover.full_width)
+        a_full.triggered.connect(lambda checked: cover.set_full_width(checked))
+        actions.append(a_full)
         if cover.mode == "bar":
             actions.append(self._slider("Opacity", cover.opacity_pct, 0, 100, cover.set_opacity))
         else:
