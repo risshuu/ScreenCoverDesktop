@@ -270,9 +270,21 @@ class Cover(QWidget):
 
     def _show_menu(self, gp):
         m = QMenu(self)
+        # The cover is HWND_TOPMOST; the menu needs to be too or it renders
+        # underneath us.
+        m.setWindowFlags(m.windowFlags() | Qt.WindowStaysOnTopHint)
         for a in self.controller.menu_actions_for(self):
             m.addAction(a)
-        m.exec(gp)
+        # Pause mosaic capture while the menu is open, otherwise the timer
+        # grabs the menu's pixels into the snapshot and we mosaic our own UI.
+        paused = self.mode == "mosaic" and self._timer.isActive()
+        if paused:
+            self._timer.stop()
+        try:
+            m.exec(gp)
+        finally:
+            if paused and self.isVisible():
+                self._timer.start()
 
 
 def make_tray_icon():
