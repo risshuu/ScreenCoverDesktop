@@ -49,10 +49,13 @@ def exclude_from_capture(widget):
         pass
 
 
-class CoverWindow(QWidget):
-    def __init__(self, controller):
+class Cover(QWidget):
+    def __init__(self, controller, mode="bar", opacity_pct=100, intensity=50):
         super().__init__()
         self.controller = controller
+        self.mode = mode
+        self.opacity_pct = opacity_pct
+        self.intensity = intensity
         self.setWindowFlags(
             Qt.FramelessWindowHint
             | Qt.WindowStaysOnTopHint
@@ -65,15 +68,84 @@ class CoverWindow(QWidget):
         self._resize_origin = None
         self._resize_geom = None
         self._locked = False
+        self._snapshot = None
+        self._timer = QTimer(self)
+        self._timer.setInterval(33)
+        self._timer.timeout.connect(self._capture)
 
     def show_and_init(self):
         self.show()
         exclude_from_capture(self)
+        if self.mode == "mosaic":
+            self._timer.start()
+
+    def hideEvent(self, _):
+        self._timer.stop()
+
+    def showEvent(self, _):
+        if self.mode == "mosaic":
+            self._timer.start()
+
+    def set_mode(self, mode):
+        if mode == self.mode:
+            return
+        self.mode = mode
+        if mode == "mosaic" and self.isVisible():
+            self._timer.start()
+        else:
+            self._timer.stop()
+            self._snapshot = None
+        self.update()
+
+    def set_opacity(self, pct):
+        self.opacity_pct = max(0, min(100, pct))
+        self.update()
+
+    def set_intensity(self, v):
+        self.intensity = max(1, min(100, v))
+        self.update()
 
     def set_locked(self, locked):
         self._locked = locked
         self.setAttribute(Qt.WA_TransparentForMouseEvents, locked)
         self.update()
+
+    def _capture(self):
+        scr = self.screen() or QGuiApplication.primaryScreen()
+        if not scr:
+            return
+        g = self.geometry()
+        sg = scr.geometry()
+        pm = scr.grabWindow(0, g.x() - sg.x(), g.y() - sg.y(), g.width(), g.height())
+        self._snapshot = pm
+        self.update()
+
+    def paintEvent(self, _):
+        p = QPainter(self)
+        if self.mode == "bar":
+            self._paint_bar(p)
+        else:
+            self._paint_mosaic(p)
+        if not self._locked:
+            p.setPen(QColor(255, 255, 255, 110 if self.mode == "mosaic" else 90))
+            p.drawRect(self.rect().adjusted(0, 0, -1, -1))
+
+    def _paint_bar(self, p):
+        p.fillRect(self.rect(), QColor(0, 0, 0, int(255 * self.opacity_pct / 100)))
+
+    def _paint_mosaic(self, p):
+        if not self._snapshot or self._snapshot.isNull():
+            p.fillRect(self.rect(), QColor(40, 40, 40, 200))
+            return
+        block = max(2, int(32 * self.intensity / 100))
+        sw = max(1, self.width() // block)
+        sh = max(1, self.height() // block)
+        small = self._snapshot.scaled(sw, sh, Qt.IgnoreAspectRatio, Qt.FastTransformation)
+        big = small.scaled(self.size(), Qt.IgnoreAspectRatio, Qt.FastTransformation)
+        p.drawPixmap(0, 0, big)
+        darken = int(255 * (self.intensity / 100) * 0.3)
+        if darken:
+            p.fillRect(self.rect(), QColor(0, 0, 0, darken))
 
     def _hit_edge(self, p):
         r = self.rect()
@@ -143,80 +215,8 @@ class CoverWindow(QWidget):
     def _show_menu(self, gp):
         m = QMenu(self)
         for a in self.controller.menu_actions_for(self):
-            if isinstance(a, QWidgetAction):
-                m.addAction(a)
-            else:
-                m.addAction(a)
+            m.addAction(a)
         m.exec(gp)
-
-
-class BarCover(CoverWindow):
-    def __init__(self, controller, opacity_pct=100):
-        super().__init__(controller)
-        self.opacity_pct = opacity_pct
-
-    def set_opacity(self, pct):
-        self.opacity_pct = max(0, min(100, pct))
-        self.update()
-
-    def paintEvent(self, _):
-        p = QPainter(self)
-        p.fillRect(self.rect(), QColor(0, 0, 0, int(255 * self.opacity_pct / 100)))
-        if not self._locked:
-            p.setPen(QColor(255, 255, 255, 90))
-            p.drawRect(self.rect().adjusted(0, 0, -1, -1))
-
-
-class MosaicCover(CoverWindow):
-    def __init__(self, controller, intensity=50):
-        super().__init__(controller)
-        self.intensity = intensity
-        self._snapshot = None
-        self._timer = QTimer(self)
-        self._timer.setInterval(33)
-        self._timer.timeout.connect(self._capture)
-
-    def show_and_init(self):
-        super().show_and_init()
-        self._timer.start()
-
-    def hideEvent(self, _):
-        self._timer.stop()
-
-    def showEvent(self, _):
-        self._timer.start()
-
-    def set_intensity(self, v):
-        self.intensity = max(1, min(100, v))
-        self.update()
-
-    def _capture(self):
-        scr = self.screen() or QGuiApplication.primaryScreen()
-        if not scr:
-            return
-        g = self.geometry()
-        sg = scr.geometry()
-        pm = scr.grabWindow(0, g.x() - sg.x(), g.y() - sg.y(), g.width(), g.height())
-        self._snapshot = pm
-        self.update()
-
-    def paintEvent(self, _):
-        p = QPainter(self)
-        if not self._snapshot or self._snapshot.isNull():
-            p.fillRect(self.rect(), QColor(40, 40, 40, 200))
-            return
-        block = max(2, int(32 * self.intensity / 100))
-        sw = max(1, self.width() // block)
-        sh = max(1, self.height() // block)
-        small = self._snapshot.scaled(sw, sh, Qt.IgnoreAspectRatio, Qt.FastTransformation)
-        big = small.scaled(self.size(), Qt.IgnoreAspectRatio, Qt.FastTransformation)
-        p.drawPixmap(0, 0, big)
-        darken = int(255 * (self.intensity / 100) * 0.3)
-        if darken:
-            p.fillRect(self.rect(), QColor(0, 0, 0, darken))
-        if not self._locked:
-            p.setPen(QColor(255, 255, 255, 110))
-            p.drawRect(self.rect().adjusted(0, 0, -1, -1))
 
 
 def make_tray_icon():
@@ -277,19 +277,19 @@ class Controller(QObject):
 
     def add_top_bar(self):
         g = self._primary()
-        c = BarCover(self)
+        c = Cover(self, mode="bar")
         c.setGeometry(g.x(), g.y(), g.width(), 100)
         self._add(c)
 
     def add_bottom_bar(self):
         g = self._primary()
-        c = BarCover(self)
+        c = Cover(self, mode="bar")
         c.setGeometry(g.x(), g.bottom() - 100, g.width(), 100)
         self._add(c)
 
     def add_mosaic(self):
         g = self._primary()
-        c = MosaicCover(self)
+        c = Cover(self, mode="mosaic")
         w, h = 480, 200
         c.setGeometry(g.center().x() - w // 2, g.center().y() - h // 2, w, h)
         self._add(c)
@@ -326,9 +326,14 @@ class Controller(QObject):
 
     def menu_actions_for(self, cover):
         actions = []
-        if isinstance(cover, BarCover):
+        a_mode = QAction("Mosaic mode", self)
+        a_mode.setCheckable(True)
+        a_mode.setChecked(cover.mode == "mosaic")
+        a_mode.triggered.connect(lambda checked: cover.set_mode("mosaic" if checked else "bar"))
+        actions.append(a_mode)
+        if cover.mode == "bar":
             actions.append(self._slider("Opacity", cover.opacity_pct, 0, 100, cover.set_opacity))
-        elif isinstance(cover, MosaicCover):
+        else:
             actions.append(self._slider("Mosaic intensity", cover.intensity, 1, 100, cover.set_intensity))
         a_lock = QAction("Lock all (click-through)", self)
         a_lock.setCheckable(True)
